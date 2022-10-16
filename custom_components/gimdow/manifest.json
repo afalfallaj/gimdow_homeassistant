@@ -1,0 +1,7 @@
+{
+    "domain": "gimdow",
+    "name": "Gimdow Lock",
+    "requirements": ["tuya-connector-python==0.1.2"],
+    "iot_class": "cloud_polling",
+    "version": "0.1.0"
+}

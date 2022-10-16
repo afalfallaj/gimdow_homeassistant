@@ -1,0 +1,7 @@
+lock:
+  - platform: gimdow
+    name: ""
+    device_id: ""
+    url: https://openapi.tuyaeu.com
+    client_id: !secret tuya_access_id
+    api_key: !secret tuya_access_key
