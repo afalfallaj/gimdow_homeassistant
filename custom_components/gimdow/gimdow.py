@@ -36,7 +36,6 @@ class GimdowInstance:
         query_list = query_result.get("result")
 
         if query_list.get("logs"):
-            self._latest_update = end_time
             for logs in query_list.get("logs"):
                 if logs.get("code") == 'lock_motor_state':
                     self.is_locked = not logs.get("value")
@@ -45,6 +44,15 @@ class GimdowInstance:
                     self.is_locked = True
                     break
                 elif logs.get("code") == 'unlock_key':
+                    self.is_locked = False
+                    break
+                elif logs.get("code") == 'manual_lock':
+                    self.is_locked = True
+                    break
+                elif logs.get("code") == 'unlock_ble':
+                    self.is_locked = False
+                    break
+                elif logs.get("code") == 'unlock_phone_remote':
                     self.is_locked = False
                     break
         else:
