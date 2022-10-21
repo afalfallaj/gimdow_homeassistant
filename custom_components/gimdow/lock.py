@@ -10,8 +10,9 @@ from pprint import pformat
 import functools as ft
 
 # Import the device class from the component that you want to support
-import homeassistant.helpers.config_validation as cv 
-from homeassistant.components.lock import (PLATFORM_SCHEMA, LockEntity, LockEntityDescription)
+import homeassistant.helpers.config_validation as cv
+from homeassistant.components.lock import (
+    PLATFORM_SCHEMA, LockEntity, LockEntityDescription)
 from homeassistant.const import CONF_NAME, CONF_DEVICE_ID, CONF_URL, CONF_CLIENT_ID, CONF_API_KEY
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -38,7 +39,7 @@ def setup_platform(
     """Set up the Gimdow Lock platform."""
     # Add devices
     _LOGGER.info(pformat(config))
-    
+
     lock = {
         "name": config[CONF_NAME],
         "device_id": config[CONF_DEVICE_ID],
@@ -46,8 +47,9 @@ def setup_platform(
         "access_id": config[CONF_CLIENT_ID],
         "access_key": config[CONF_API_KEY],
     }
-    
+
     add_entities([GimdowLock(lock)], True)
+
 
 class GimdowLock(LockEntity):
 
@@ -60,6 +62,9 @@ class GimdowLock(LockEntity):
         self._changed_by: str | None = None
         self._is_locked: bool | None = None
         self._state = None
+        self._is_locking: bool | None = None
+        self._is_unlocking: bool | None = None
+        self._is_jammed: bool | None = None
 
     @property
     def name(self) -> str:
@@ -76,23 +81,42 @@ class GimdowLock(LockEntity):
         """Return true if the lock is locked."""
         return self._is_locked
 
+    @property
+    def is_locking(self) -> bool | None:
+        """Return true if the lock is locking."""
+        return self._is_locking
+
+    @property
+    def is_unlocking(self) -> bool | None:
+        """Return true if the lock is unlocking."""
+        return self._is_unlocking
+
+    # @property
+    # def is_jammed(self) -> bool | None:
+    #     """Return true if the lock is jammed (incomplete locking)."""
+    #     return self._is_jammed
+
     def lock(self, **kwargs: Any) -> None:
         """lock the lock."""
+        self._is_locking = True
         if self._lock.set_lock(False):
             self._is_locked = True
 
     async def async_lock(self, **kwargs: Any) -> None:
         """lock the lock."""
         await self.hass.async_add_executor_job(ft.partial(self.lock, **kwargs))
+        self._is_locking = False
 
     def unlock(self, **kwargs: Any) -> None:
         """Unlock the lock."""
+        self._is_unlocking = True
         if self._lock.set_lock(True):
             self._is_locked = False
 
     async def async_unlock(self, **kwargs: Any) -> None:
         """Unlock the lock."""
         await self.hass.async_add_executor_job(ft.partial(self.unlock, **kwargs))
+        self._is_unlocking = False
 
     def update(self) -> None:
         """Fetch new state data for this lock.
