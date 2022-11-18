@@ -31,6 +31,16 @@ class GimdowInstance:
         end_time = self.get_timestamp()
 
         self._openapi.connect()
+        query_sync = self._openapi.post(
+            f"/v1.0/iot-03/devices/{self._device_id}/commands",
+            {
+            "commands": [
+                {
+                "code": "synch_method",
+                "value": True
+                }
+            ]
+            })
         query_result = self._openapi.get(
             f"/v1.0/devices/{self._device_id}/logs?end_time={end_time}&start_time={start_time}&type=7")
 
