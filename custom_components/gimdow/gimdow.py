@@ -41,7 +41,7 @@ class GimdowInstance:
             {"commands": [{"code": "synch_method", "value": True}]},
         )
         query_result = self._openapi.get(
-            f"/v2.0/cloud/thing/{self._device_id}/logs?codes=lock_record,unlock_key,manual_lock,unlock_ble,unlock_phone_remote&end_time={end_time}&query_type=1&size=5&start_time={start_time}&type=7"
+            f"/v1.0/devices/{self._device_id}/logs?codes=lock_record,unlock_key,manual_lock,unlock_ble,unlock_phone_remote&end_time={end_time}&query_type=1&size=5&start_time={start_time}&type=7"
         )
 
         query_list = query_result.get("result")
@@ -68,7 +68,7 @@ class GimdowInstance:
             self._latest_update = start_time - 2592000000
 
         battery_result = self._openapi.get(
-            f"/v2.0/cloud/thing/{self._device_id}/shadow/properties?codes=battery_state"
+            f"/v1.0/devices/{self._device_id}/shadow/properties?codes=battery_state"
         )
         if battery_result.get("result"):
             self._battery_state = (
