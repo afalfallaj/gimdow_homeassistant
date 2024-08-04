@@ -65,6 +65,7 @@ class GimdowLock(LockEntity):
         self._is_locking: bool | None = None
         self._is_unlocking: bool | None = None
         self._is_jammed: bool | None = None
+        self._battery_state: str | None = None
 
     @property
     def name(self) -> str:
@@ -96,6 +97,18 @@ class GimdowLock(LockEntity):
     #     """Return true if the lock is jammed (incomplete locking)."""
     #     return self._is_jammed
 
+    @property
+    def battery_state(self) -> str | None:
+        """Return the battery state of the lock."""
+        return self._battery_state
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return the state attributes."""
+        return {
+            "battery_state": self._battery_state,
+        }
+
     def lock(self, **kwargs: Any) -> None:
         """lock the lock."""
         self._is_locking = True
@@ -124,3 +137,4 @@ class GimdowLock(LockEntity):
         """
         self._lock.update()
         self._is_locked = self._lock.is_locked
+        self._battery_state = self._lock.battery_state()
