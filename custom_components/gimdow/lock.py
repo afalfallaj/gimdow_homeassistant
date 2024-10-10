@@ -2,31 +2,22 @@
 from __future__ import annotations
 
 import logging
-
+from typing import Any
 from .gimdow import GimdowInstance
 import voluptuous as vol
-
-from pprint import pformat
-import functools as ft
-
-# Import the device class from the component that you want to support
 import homeassistant.helpers.config_validation as cv
-from homeassistant.components.lock import (
-    PLATFORM_SCHEMA, LockEntity, LockEntityDescription)
-from homeassistant.const import CONF_NAME, CONF_DEVICE_ID, CONF_URL, CONF_CLIENT_ID, CONF_API_KEY
+from homeassistant.components.lock import LockEntity, PLATFORM_SCHEMA
+from homeassistant.const import CONF_NAME, CONF_DEVICE_ID
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 _LOGGER = logging.getLogger(__name__)
 
-# Validation of the user's configuration
+# Validation of the user's configuration (if using static config, which we're not currently using)
 PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend({
     vol.Optional(CONF_NAME): cv.string,
     vol.Required(CONF_DEVICE_ID): cv.string,
-    vol.Required(CONF_URL): cv.string,
-    vol.Required(CONF_CLIENT_ID): cv.string,
-    vol.Required(CONF_API_KEY): cv.string,
 })
 
 
@@ -37,90 +28,49 @@ def setup_platform(
     discovery_info: DiscoveryInfoType | None = None
 ) -> None:
     """Set up the Gimdow Lock platform."""
-    # Add devices
-    _LOGGER.info(pformat(config))
-
-    lock = {
-        "name": config[CONF_NAME],
-        "device_id": config[CONF_DEVICE_ID],
-        "tuya_endpoint": config[CONF_URL],
-        "access_id": config[CONF_CLIENT_ID],
-        "access_key": config[CONF_API_KEY],
-    }
-
-    add_entities([GimdowLock(lock)], True)
+    lock_config = discovery_info if discovery_info else config
+    gimdow_lock = GimdowLock(lock_config)
+    add_entities([gimdow_lock], True)
 
 
 class GimdowLock(LockEntity):
+    """Representation of a Gimdow Lock."""
 
-    def __init__(self, lock) -> None:
-        """Initialize an GimdowLock."""
-        _LOGGER.info(pformat(lock))
+    def __init__(self, lock: dict) -> None:
+        """Initialize the lock."""
+        _LOGGER.info("Initializing Gimdow Lock: %s", lock)
         self._lock = GimdowInstance(lock)
-        self._name = lock["name"]
-        entity_description: LockEntityDescription
-        self._changed_by: str | None = None
-        self._is_locked: bool | None = None
-        self._state = None
-        self._is_locking: bool | None = None
-        self._is_unlocking: bool | None = None
-        self._is_jammed: bool | None = None
+        self._name = lock.get("device_name", "Gimdow Lock")
+        self._is_locked = None
 
     @property
     def name(self) -> str:
-        """Return the display name of this lock."""
+        """Return the name of the lock."""
         return self._name
-
-    @property
-    def changed_by(self) -> str | None:
-        """Last change triggered by."""
-        return self._changed_by
 
     @property
     def is_locked(self) -> bool | None:
         """Return true if the lock is locked."""
         return self._is_locked
 
-    @property
-    def is_locking(self) -> bool | None:
-        """Return true if the lock is locking."""
-        return self._is_locking
-
-    @property
-    def is_unlocking(self) -> bool | None:
-        """Return true if the lock is unlocking."""
-        return self._is_unlocking
-
-    # @property
-    # def is_jammed(self) -> bool | None:
-    #     """Return true if the lock is jammed (incomplete locking)."""
-    #     return self._is_jammed
-
     def lock(self, **kwargs: Any) -> None:
-        """lock the lock."""
-        self._is_locking = True
+        """Lock the lock."""
+        _LOGGER.info("Locking the lock.")
         if self._lock.set_lock(False):
             self._is_locked = True
-
-    async def async_lock(self, **kwargs: Any) -> None:
-        """lock the lock."""
-        await self.hass.async_add_executor_job(ft.partial(self.lock, **kwargs))
-        self._is_locking = False
+        else:
+            _LOGGER.error("Failed to lock the device.")
 
     def unlock(self, **kwargs: Any) -> None:
         """Unlock the lock."""
-        self._is_unlocking = True
+        _LOGGER.info("Unlocking the lock.")
         if self._lock.set_lock(True):
             self._is_locked = False
-
-    async def async_unlock(self, **kwargs: Any) -> None:
-        """Unlock the lock."""
-        await self.hass.async_add_executor_job(ft.partial(self.unlock, **kwargs))
-        self._is_unlocking = False
+        else:
+            _LOGGER.error("Failed to unlock the device.")
 
     def update(self) -> None:
-        """Fetch new state data for this lock.
-        This is the only method that should fetch new data for Home Assistant.
-        """
+        """Fetch new state data for this lock."""
+        _LOGGER.info("Updating lock state.")
         self._lock.update()
         self._is_locked = self._lock.is_locked

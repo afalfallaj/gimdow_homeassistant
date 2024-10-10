@@ -1,0 +1,13 @@
+{
+  "name": "Gimdow Lock",
+  "description": "Integration to control Gimdow locks using Tuya-based QR code authentication.",
+  "render_readme": true,
+  "domains": ["lock"],
+  "country": "GLOBAL",
+  "homeassistant": "2022.2.0",
+  "iot_class": "cloud_polling",
+  "filename": "custom_components/gimdow",
+  "zip_release": false,
+  "manifest": true,
+  "custom": true
+}
