@@ -1,144 +1,148 @@
-"""Handle the connection and control logic for Gimdow Lock using Tuya APIs."""
-from tuya_sharing.customerapi import CustomerApi, CustomerTokenInfo  # Corrected import statement
-import logging
-import time
+"""Support for Gimdow Lock devices."""
+from __future__ import annotations
 
-_LOGGER = logging.getLogger(__name__)
+from datetime import datetime, timedelta
+from typing import Any
 
-class GimdowInstance:
-    """Gimdow Lock instance to handle Tuya API interaction."""
+from tuya_sharing import CustomerDevice, Manager
 
-    def __init__(self, lock: dict) -> None:
-        """Initialize with Tuya API credentials and device ID."""
-        self._device_id = lock["device_id"]
+from homeassistant.components.lock import LockEntity
+from homeassistant.core import callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
-        # Use the values provided from LoginControl (from config entry)
-        client_id = lock["client_id"]
-        user_code = lock["user_code"]
-        endpoint = lock["endpoint"]
+from .const import (
+    DOMAIN,
+    LOGGER,
+    GIMDOW_DISCOVERY_NEW,
+    GIMDOW_HA_SIGNAL_UPDATE_ENTITY,
+)
 
-        # Create a CustomerTokenInfo instance with the token information
-        token_info = CustomerTokenInfo({
-            "access_token": lock["access_token"],
-            "refresh_token": lock["refresh_token"],
-            "t": int(time.time() * 1000),  # Current timestamp in milliseconds
-            "expire_time": 7200,  # Placeholder value, adjust as needed
-            "uid": lock.get("uid", "")
-        })
+LOCK_LOG_PRIORITY = {
+    'lock_record': 5,
+    'unlock_key': 4,
+    'manual_lock': 3,
+    'unlock_ble': 2,
+    'unlock_phone_remote': 1,
+}
 
-        # Create a CustomerApi instance using dynamic values
-        self.customer_api = CustomerApi(
-            token_info=token_info,
-            client_id=client_id,  # Dynamically obtained from LoginControl
-            user_code=user_code,  # Dynamically obtained from LoginControl
-            end_point=endpoint,  # Dynamically obtained from login response
-            listener=None  # No token listener is required for this use case
-        )
-        self.is_locked: bool | None = None
-        self._latest_update = int(time.time() * 1000)  # Store the latest update timestamp in milliseconds
 
-    def set_lock(self, state: bool) -> bool:
-        """Set the lock state to locked or unlocked using a ticket."""
-        _LOGGER.info("Setting lock state to: %s", "Unlock" if state else "Lock")
+class GimdowLock(LockEntity):
+    """Representation of a Gimdow Lock."""
 
-        # Step 1: Get a password ticket for the lock operation
-        ticket_response = self.customer_api.post(
-            f"/v1.0/smart-lock/devices/{self._device_id}/password-ticket"
-        )
-        _LOGGER.debug("Ticket response: %s", ticket_response)
+    _attr_has_entity_name = True
 
-        # Check if ticket retrieval was successful
-        if ticket_response and ticket_response.get("success"):
-            # Step 2: Extract the ticket ID
-            tid = ticket_response.get("result", {}).get("ticket_id")
-            _LOGGER.info("Obtained ticket ID: %s", tid)
+    def __init__(self, device: CustomerDevice, device_manager: Manager) -> None:
+        """Initialize the Gimdow Lock."""
+        self._device = device
+        self._device_manager = device_manager
+        self._attr_unique_id = f"gimdow.{device.id}"
+        self._attr_name = device.name
+        self._attr_is_locked = False
+        self._lock_state_last_timestamp = None
+
+    @property
+    def available(self) -> bool:
+        """Return if the lock is available."""
+        return self._device.online
+
+    @property
+    def device_info(self) -> dict[str, Any]:
+        """Return a device description for device registry."""
+        return {
+            "identifiers": {(DOMAIN, self._device.id)},
+            "manufacturer": "Gimdow",
+            "name": self._device.name,
+            "model": self._device.product_name,
+            "model_id": self._device.product_id,
+        }
+
+    @property
+    def is_locked(self) -> bool:
+        """Return true if the lock is locked."""
+        return self._attr_is_locked
+
+    def lock(self, **kwargs: Any) -> None:
+        """Lock the device."""
+        LOGGER.debug("Locking the Gimdow lock: %s", self._device.id)
+        self._send_command(True)
+
+    def unlock(self, **kwargs: Any) -> None:
+        """Unlock the device."""
+        LOGGER.debug("Unlocking the Gimdow lock: %s", self._device.id)
+        self._send_command(False)
+
+    def _send_command(self, state: bool) -> None:
+        """Send the lock/unlock command to the device."""
+        try:
+            # Step 1: Request a password ticket
+            ticket_response = self._device_manager.customer_api.post(
+                f"/v1.0/smart-lock/devices/{self._device.id}/password-ticket"
+            )
+
+            tid = ticket_response["result"].get("ticket_id")
             if tid:
-                # Step 3: Use the ticket to operate the lock
-                operate_response = self.customer_api.post(
-                    f"/v1.0/smart-lock/devices/{self._device_id}/password-free/door-operate",
-                    body={"ticket_id": tid, "open": state}
+                # Step 2: Use the ticket to perform the lock/unlock operation
+                operate_response = self._device_manager.customer_api.post(
+                    f"/v1.0/smart-lock/devices/{self._device.id}/password-free/door-operate",
+                    {"ticket_id": tid, "open": not state},
                 )
-                _LOGGER.debug("Operate response: %s", operate_response)
+                if operate_response.get("success"):
+                    self._attr_is_locked = state
+                    self.schedule_update_ha_state()
+        except Exception as error:
+            LOGGER.error("Failed to send lock command: %s", error)
 
-                # Check if the operation was successful
-                if operate_response and operate_response.get("success"):
-                    # Step 4: Update the internal lock state
-                    self.is_locked = not state  # `state` should be False for locking and True for unlocking
-                    _LOGGER.info("Lock state set successfully: %s", "Locked" if not state else "Unlocked")
-                    return True
-
-        # If any step fails, log an error and return False
-        _LOGGER.error("Failed to set the lock state. State: %s", "Unlock" if state else "Lock")
-        return False
-
-    def update(self) -> None:
-        """Update the lock state by querying the device logs."""
-        _LOGGER.info("Updating lock state with device synchronization.")
-
-        # Step 1: Call the `synch_method` before querying logs to ensure data is up-to-date
-        sync_response = self.customer_api.post(
-            f"/v1.0/iot-03/devices/{self._device_id}/commands",
-            body={
-                "commands": [
-                    {
-                        "code": "synch_method",
-                        "value": True  # Synchronize the device with the cloud
-                    }
-                ]
-            }
+    async def async_added_to_hass(self) -> None:
+        """Call when entity is added to hass."""
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                f"{GIMDOW_HA_SIGNAL_UPDATE_ENTITY}_{self._device.id}",
+                self.async_write_ha_state,
+            )
         )
-        _LOGGER.debug("Device synchronization response: %s", sync_response)
 
-        # Check if synchronization was successful
-        if not sync_response or not sync_response.get("success"):
-            _LOGGER.error("Failed to synchronize the device before updating status.")
+    @callback
+    def update_device(self) -> None:
+        """Update the lock status using device logs."""
+        self._fetch_device_logs()
+
+    def _fetch_device_logs(self) -> None:
+        """Fetch the lock's device logs to determine the latest state."""
+        try:
+            now = datetime.utcnow()
+            end_time = int(now.timestamp() * 1000)
+            start_time = int((now - timedelta(days=7)).timestamp() * 1000)
+
+            response = self._device_manager.customer_api.get(
+                f"/v1.0/devices/{self._device.id}/logs?end_time={end_time}&start_time={start_time}&type=7"
+            )
+
+            if response.get("success"):
+                log_entries = response["result"]["logs"]
+                self._update_lock_state_from_logs(log_entries)
+            else:
+                LOGGER.error("Failed to fetch logs for device: %s", self._device.id)
+        except Exception as error:
+            LOGGER.error("Error fetching device logs: %s", error)
+
+    def _update_lock_state_from_logs(self, logs: list[dict[str, Any]]) -> None:
+        """Update lock state based on logs fetched from the API."""
+        if not logs:
+            LOGGER.warning("No logs found for device: %s", self._device.id)
             return
 
-        # Step 2: Set up the time window for fetching logs
-        start_time = self._latest_update
-        end_time = int(time.time() * 1000)  # Current time in milliseconds
+        latest_entry = None
 
-        # Fetch the device logs from the Tuya API
-        path = f"/v1.0/devices/{self._device_id}/logs?end_time={end_time}&start_time={start_time}&type=7"
-        response = self.customer_api.get(path)
-        _LOGGER.debug("Device logs response: %s", response)
+        for log in logs:
+            event_type = log.get("type", "")
+            if event_type in LOCK_LOG_PRIORITY:
+                if not latest_entry or LOCK_LOG_PRIORITY[event_type] > LOCK_LOG_PRIORITY[latest_entry["type"]]:
+                    latest_entry = log
 
-        if response and response.get("success"):
-            log_list = response.get("result", {}).get("logs", [])
-
-            # Priority levels for different types of events
-            priority = {
-                'lock_record': 5,
-                'unlock_key': 4,
-                'manual_lock': 3,
-                'unlock_ble': 2,
-                'unlock_phone_remote': 1
-            }
-
-            # Track the highest priority event
-            highest_priority = 0
-            final_state = None
-
-            # Iterate through the logs to find the most important state update
-            for log in log_list:
-                log_code = log.get("code")
-                _LOGGER.debug(f"Processing log code: {log_code}, value: {log.get('value')}")
-
-                if log_code in priority:
-                    current_priority = priority[log_code]
-                    _LOGGER.debug(f"Current priority: {current_priority}, Highest priority so far: {highest_priority}")
-
-                    if current_priority >= highest_priority:
-                        highest_priority = current_priority
-                        if log_code in ['lock_record', 'manual_lock']:
-                            final_state = True  # Lock is engaged
-                        elif log_code in ['unlock_key', 'unlock_ble', 'unlock_phone_remote']:
-                            final_state = False  # Lock is disengaged
-
-            # Update the internal lock state based on the highest-priority event found
-            if final_state is not None:
-                self.is_locked = final_state
-                self._latest_update = end_time  # Update the timestamp to the latest
-                _LOGGER.info(f"Updated lock state to: {'Locked' if final_state else 'Unlocked'} based on highest priority event: {highest_priority}")
-        else:
-            _LOGGER.error("Failed to update lock state. Could not fetch device logs.")
+        if latest_entry:
+            # Determine the lock state based on the latest log entry
+            self._attr_is_locked = latest_entry["type"] in {"lock_record", "manual_lock"}
+            self._lock_state_last_timestamp = latest_entry.get("time", "")
+            LOGGER.info("Updated lock state for %s based on logs: %s", self._device.id, latest_entry)
+            self.schedule_update_ha_state()
