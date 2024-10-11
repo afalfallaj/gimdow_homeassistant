@@ -6,7 +6,8 @@ import logging
 from io import BytesIO
 import base64
 
-from .const import DOMAIN, LOGGER
+# Import the constants from const.py
+from .const import DOMAIN, LOGGER, CONF_USER_CODE, CONF_CLIENT_ID, CONF_SCHEMA
 
 APP_QR_CODE_HEADER = "tuyaSmart--qrLogin?token="
 
@@ -22,23 +23,21 @@ class GimdowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         self._qr_code: str | None = None
         self.login_control = LoginControl()  # Initialize LoginControl
         self._available_devices = []  # Store available devices to present to the user
-        self.client_id = None  # Placeholder for client_id
         self.user_code = None  # Placeholder for user_code
-        self.schema = "tuya"  # Default schema, adjust if needed
+        self.token_info = {}  # Placeholder for token information
 
     async def async_step_user(self, user_input=None):
         """Handle the initial step for QR code login."""
         errors = {}
         if user_input is not None:
-            # Store the client_id and user_code provided by the user
-            self.client_id = user_input.get("client_id")
-            self.user_code = user_input.get("user_code")
+            # Store the user_code provided by the user
+            self.user_code = user_input.get(CONF_USER_CODE)
 
-            # Generate a QR code for the user to scan
+            # Generate a QR code for the user to scan using constants for client_id and schema
             response = await self.hass.async_add_executor_job(
                 self.login_control.qr_code,
-                self.client_id,
-                self.schema,
+                CONF_CLIENT_ID,  # Use constant from const.py
+                CONF_SCHEMA,     # Use constant from const.py
                 self.user_code
             )
             _LOGGER.debug("QR code response: %s", response)
@@ -62,11 +61,10 @@ class GimdowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "qr_code_error"
                 _LOGGER.error("Failed to generate QR code: %s", response.get("msg"))
 
-        # Show a form asking for client_id and user_code if not provided yet
+        # Show a form asking for user_code if not provided yet
         data_schema = vol.Schema(
             {
-                vol.Required("client_id", default=self.client_id or ""): str,
-                vol.Required("user_code", default=self.user_code or ""): str,
+                vol.Required(CONF_USER_CODE, default=self.user_code or ""): str,
             }
         )
 
@@ -80,14 +78,19 @@ class GimdowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         """Handle the step for scanning and validating the QR code."""
         # Call the login_result method to check the result of the QR code scanning
         ret, info = await self.hass.async_add_executor_job(
-            self.login_control.login_result, self._qr_code, self.client_id, self.user_code
+            self.login_control.login_result, self._qr_code, CONF_CLIENT_ID, self.user_code
         )
         _LOGGER.debug("Login result = %s, info = %s", ret, info)
 
         if ret:
-            # Successfully authenticated, create a CustomerApi instance with the token
-            client_id = self.client_id
-            user_code = self.user_code
+            # Successfully authenticated, store the token information
+            self.token_info = {
+                "access_token": info.get("access_token"),
+                "refresh_token": info.get("refresh_token"),
+                "t": info.get("t"),
+                "expire_time": info.get("expire_time"),
+                "uid": info.get("uid")
+            }
             endpoint = info.get("endpoint")
 
             # Fetch the list of devices
@@ -96,7 +99,7 @@ class GimdowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 return self.async_abort(reason="no_devices_found")
 
             # Proceed to the device selection step
-            return await self.async_step_select_device(client_id, user_code, endpoint)
+            return await self.async_step_select_device(endpoint)
 
         # If the login fails, display an error message and regenerate the QR code
         errors = {"base": "login_error"}
@@ -110,7 +113,7 @@ class GimdowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             },
         )
 
-    async def async_step_select_device(self, client_id, user_code, endpoint, user_input=None):
+    async def async_step_select_device(self, endpoint, user_input=None):
         """Step to select a device from the available devices."""
         if user_input is not None:
             # Store selected device information and complete the setup
@@ -123,10 +126,10 @@ class GimdowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     data={
                         "device_id": selected_device["device_id"],
                         "device_name": selected_device["name"],
-                        "access_token": self.login_control.token_info.access_token,
-                        "refresh_token": self.login_control.token_info.refresh_token,
-                        "client_id": client_id,  # Save client ID dynamically
-                        "user_code": user_code,  # Save user code dynamically
+                        "access_token": self.token_info["access_token"],  # Use token_info directly
+                        "refresh_token": self.token_info["refresh_token"],  # Use token_info directly
+                        "client_id": CONF_CLIENT_ID,  # Use constant client ID
+                        "user_code": self.user_code,  # Save user code dynamically
                         "endpoint": endpoint,  # Save endpoint dynamically
                     }
                 )
