@@ -1,0 +1,44 @@
+{
+  "title": "Gimdow Lock Integration",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Gimdow Lock Integration",
+        "description": "Click 'Submit' to start the QR code login process for your Gimdow lock.",
+        "data": {
+          "qr_code": "QR Code"
+        }
+      },
+      "scan": {
+        "title": "Scan the QR Code",
+        "description": "Open the Tuya Smart app and scan the QR code below to link your account. After scanning, click 'Submit'.",
+        "data": {
+          "qr_code": "QR Code"
+        }
+      },
+      "select_device": {
+        "title": "Select Device",
+        "description": "Select the device you want to integrate with Home Assistant from the list below.",
+        "data": {
+          "device_id": "Device"
+        }
+      }
+    },
+    "error": {
+      "login_error": "Failed to log in. Please try again.",
+      "qr_code_error": "Unable to generate the QR code. Check your network connection and try again."
+    },
+    "abort": {
+      "no_devices_found": "No devices were found in your Tuya account.",
+      "already_configured": "This device is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Gimdow Lock Options",
+        "description": "Set your preferences for this integration."
+      }
+    }
+  }
+}

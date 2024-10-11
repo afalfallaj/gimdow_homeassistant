@@ -1,6 +1,16 @@
+"""Config flow for Gimdow Lock integration."""
 from homeassistant import config_entries
+import voluptuous as vol
 from tuya_sharing import LoginControl
+import logging
+from io import BytesIO
+import base64
+
 from .const import DOMAIN, LOGGER
+
+APP_QR_CODE_HEADER = "tuyaSmart--qrLogin?token="
+
+_LOGGER = logging.getLogger(__name__)
 
 class GimdowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Gimdow Lock."""
@@ -15,46 +25,68 @@ class GimdowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(self, user_input=None):
         """Handle the initial step for QR code login."""
+        errors = {}
         if user_input is not None:
             # Generate a QR code for the user to scan
             response = await self.hass.async_add_executor_job(self.login_control.qr_code)
-            LOGGER.debug("QR code response = %s", response)
+            _LOGGER.debug("QR code response: %s", response)
+            
             if response.get("success", False):
                 self._qr_code = response["result"]["qrcode"]
-                img = _generate_qr_code(APP_QR_CODE_HEADER + self._qr_code)
+                _LOGGER.info("Generated QR Code: %s", self._qr_code)
+                
+                # Generate the QR code image
+                qr_image = self._generate_qr_code(APP_QR_CODE_HEADER + self._qr_code)
+                _LOGGER.debug("Generated QR Code Image: %s", qr_image)
+
+                # Display the form with the QR code
                 return self.async_show_form(
                     step_id="scan",
-                    description_placeholders={"qr_code": img},
+                    description_placeholders={
+                        "qr_code": qr_image
+                    },
                 )
+            else:
+                errors["base"] = "qr_code_error"
+                _LOGGER.error("Failed to generate QR code: %s", response.get("msg"))
 
-        return self.async_show_form(step_id="user")
+        return self.async_show_form(
+            step_id="user",
+            errors=errors
+        )
 
     async def async_step_scan(self, user_input=None):
         """Handle the step for scanning and validating the QR code."""
-        # Check the login result by polling the Tuya API for the scanned QR code
+        # Call the login_result method to check the result of the QR code scanning
         ret, info = await self.hass.async_add_executor_job(
             self.login_control.login_result, self._qr_code
         )
-        LOGGER.debug("Login result = %s, info = %s", ret, info)
+        _LOGGER.debug("Login result = %s, info = %s", ret, info)
 
         if ret:
-            # Successfully authenticated, fetch required data for creating CustomerApi
-            client_id = self.login_control.client_id  # Get client ID from LoginControl
-            user_code = self.login_control.user_code  # Get user code from LoginControl
-            endpoint = info.get("endpoint")  # Get the endpoint from the login response
+            # Successfully authenticated, create a CustomerApi instance with the token
+            client_id = self.login_control.client_id
+            user_code = self.login_control.user_code
+            endpoint = info.get("endpoint")
 
-            # Proceed to fetch devices or other operations as needed
+            # Fetch the list of devices
             self._available_devices = await self._fetch_devices()
             if not self._available_devices:
                 return self.async_abort(reason="no_devices_found")
 
-            # Save the client ID, user code, and other data to the config entry
+            # Proceed to the device selection step
             return await self.async_step_select_device(client_id, user_code, endpoint)
+
+        # If the login fails, display an error message and regenerate the QR code
+        errors = {"base": "login_error"}
+        _LOGGER.error("Failed to log in with QR code: %s", info.get("msg"))
 
         return self.async_show_form(
             step_id="scan",
-            errors={"base": "login_error"},
-            description_placeholders={"qr_code": _generate_qr_code(APP_QR_CODE_HEADER + self._qr_code)},
+            errors=errors,
+            description_placeholders={
+                "qr_code": self._generate_qr_code(APP_QR_CODE_HEADER + self._qr_code),
+            },
         )
 
     async def async_step_select_device(self, client_id, user_code, endpoint, user_input=None):
@@ -65,7 +97,6 @@ class GimdowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             selected_device = next((device for device in self._available_devices if device["device_id"] == selected_device_id), None)
 
             if selected_device:
-                # Create entry with all the necessary information
                 return self.async_create_entry(
                     title=selected_device["name"],
                     data={
@@ -100,3 +131,16 @@ class GimdowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if response.get("success", False):
             return response.get("result", [])
         return []
+
+    def _generate_qr_code(self, data: str) -> str:
+        """Generate a base64 PNG string representing QR Code image of the given data."""
+        import pyqrcode  # Ensure `pyqrcode` is installed
+
+        qr_code = pyqrcode.create(data)
+        with BytesIO() as buffer:
+            qr_code.svg(file=buffer, scale=4)  # Create an SVG format of the QR code
+            svg_content = buffer.getvalue().decode("utf-8")
+
+            # Convert SVG content to a base64 string to be displayed
+            svg_base64 = base64.b64encode(svg_content.encode("utf-8")).decode("utf-8")
+            return f"data:image/svg+xml;base64,{svg_base64}"
