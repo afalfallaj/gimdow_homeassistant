@@ -100,23 +100,41 @@ class GimdowCoordinator(DataUpdateCoordinator):
 
     async def async_unlock(self) -> None:
         """Unlock the door."""
-        await self.hass.async_add_executor_job(self._operate_door, True)
+        try:
+            await self.hass.async_add_executor_job(self._operate_door, True)
+        except Exception as err:
+            _LOGGER.error("Unlock failed: %s", err)
+            raise
         await self.async_request_refresh()
 
     async def async_lock(self) -> None:
         """Lock the door."""
-        await self.hass.async_add_executor_job(self._operate_door, False)
+        try:
+            await self.hass.async_add_executor_job(self._operate_door, False)
+        except Exception as err:
+            _LOGGER.error("Lock failed: %s", err)
+            raise
         await self.async_request_refresh()
 
     def _operate_door(self, open_door: bool) -> None:
         """Operate the door (Lock/Unlock) sequence."""
+        # 0. Ensure connected (matching original code behavior)
+        self.openapi.connect()
+
         # 1. Get Password Ticket
         # POST /v1.0/smart-lock/devices/{device_id}/password-ticket
-        ticket_resp = self.openapi.post(f"/v1.0/smart-lock/devices/{self.device_id}/password-ticket", {})
+        ticket_resp = self.openapi.post(f"/v1.0/smart-lock/devices/{self.device_id}/password-ticket")
+        
         if not ticket_resp.get("success", False):
+             _LOGGER.error("Failed to get ticket. Response: %s", ticket_resp)
              raise UpdateFailed(f"Failed to get password ticket: {ticket_resp.get('msg')}")
         
-        ticket_id = ticket_resp["result"]["ticket_id"]
+        result = ticket_resp.get("result")
+        if not result or "ticket_id" not in result:
+             _LOGGER.error("Ticket response missing result or ticket_id: %s", ticket_resp)
+             raise UpdateFailed("Failed to get password ticket: missing ticket_id in response")
+             
+        ticket_id = result["ticket_id"]
 
         # 2. Operate
         # POST /v1.0/smart-lock/devices/{device_id}/password-free/door-operate
@@ -127,6 +145,7 @@ class GimdowCoordinator(DataUpdateCoordinator):
         op_resp = self.openapi.post(f"/v1.0/smart-lock/devices/{self.device_id}/password-free/door-operate", payload)
         
         if not op_resp.get("success", False):
+             _LOGGER.error("Operation failed. Response: %s", op_resp)
              raise UpdateFailed(f"Failed to operate door: {op_resp.get('msg')}")
         
         _LOGGER.info("Door operation %s successful", "unlock" if open_door else "lock")
