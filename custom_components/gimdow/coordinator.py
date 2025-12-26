@@ -75,10 +75,12 @@ class GimdowCoordinator(DataUpdateCoordinator):
         start_time = current_time_ms - (30 * 24 * 60 * 60 * 1000) 
         
         payload = {
-            "codes": "lock_record,unlock_key,manual_lock,unlock_ble,unlock_phone_remote", 
+            # "codes" parameter can be finicky. Fetching all logs (type=7 typically means device reports)
+            # Adjusting to matching original working code parameters:
+            "type": 7, 
             "start_time": start_time,
             "end_time": current_time_ms,
-            "size": 20 # Fetch more to ensure we find a valid event
+            "size": 20
         }
         
         response = self.openapi.get(f"/v1.0/devices/{self.device_id}/logs", payload)
