@@ -53,6 +53,20 @@ class GimdowCoordinator(DataUpdateCoordinator):
         # Ensure connected before polling
         self.openapi.connect()
         
+        # Send synch_method command as required by device to update logs
+        _LOGGER.debug("Sending synch_method command...")
+        self.openapi.post(
+            f"/v1.0/iot-03/devices/{self.device_id}/commands",
+            {
+                "commands": [
+                    {
+                        "code": "synch_method",
+                        "value": True
+                    }
+                ]
+            }
+        )
+
         # Priority: Check Logs first as status codes are unreliable for this device
         _LOGGER.debug("Polling logs for state...")
         
