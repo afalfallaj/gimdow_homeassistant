@@ -1,7 +1,15 @@
 {
-    "domain": "gimdow",
-    "name": "Gimdow Lock",
-    "requirements": ["tuya-connector-python==0.1.2"],
-    "iot_class": "cloud_polling",
-    "version": "0.1.0"
+"domain": "gimdow",
+"name": "Gimdow Smart Lock",
+"version": "1.0.0",
+"documentation": "https://github.com/afalfallaj/gimdow_homeassistant",
+"requirements": [
+    "tuya-iot-py-sdk==0.6.6"
+],
+"dependencies": [],
+"codeowners": [
+    "@afalfallaj"
+],
+"iot_class": "cloud_polling",
+"issue_tracker": "https://github.com/afalfallaj/gimdow_homeassistant/issues"
 }
