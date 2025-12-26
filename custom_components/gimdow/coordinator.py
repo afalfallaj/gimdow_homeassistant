@@ -50,8 +50,13 @@ class GimdowCoordinator(DataUpdateCoordinator):
 
     def _update_data(self) -> dict[str, Any]:
         """Synchronous update data method."""
+        # Ensure connected before polling
+        self.openapi.connect()
+
         # 1. Attempt to get status directly
         response = self.openapi.get(f"/v1.0/devices/{self.device_id}/status")
+        _LOGGER.debug("Status polling response: %s", response)
+        
         if response.get("success", False):
             result = response.get("result", [])
             # Convert list of dicts to a dict for easier access
