@@ -52,56 +52,59 @@ class GimdowCoordinator(DataUpdateCoordinator):
         """Synchronous update data method."""
         # Ensure connected before polling
         self.openapi.connect()
-
-        # 1. Attempt to get status directly
-        response = self.openapi.get(f"/v1.0/devices/{self.device_id}/status")
-        _LOGGER.debug("Status polling response: %s", response)
         
-        if response.get("success", False):
-            result = response.get("result", [])
-            # Convert list of dicts to a dict for easier access
-            # e.g. [{'code': 'lock_motor_state', 'value': True}] -> {'lock_motor_state': True}
-            status = {item["code"]: item["value"] for item in result}
-            
-            # If we have valid status likely to be correct, return it
-            # Note: Gimdow might use different codes. 
-            # We will return the raw status dict to be processed by the entity.
-            return status
-
-        # 2. Fallback to logs if status failed
-        _LOGGER.debug("Direct status unavailable, trying logs")
+        # Priority: Check Logs first as status codes are unreliable for this device
+        _LOGGER.debug("Polling logs for state...")
         
         current_time_ms = int(time.time() * 1000)
-        start_time = current_time_ms - (7 * 24 * 60 * 60 * 1000) # Default to 7 days ago if first run
+        # Look back 30 days by default to find the last event
+        start_time = current_time_ms - (30 * 24 * 60 * 60 * 1000) 
         
-        if self._last_log_timestamp > 0:
-             # Look back a bit further than last success to ensure no overlap overlap issues? 
-             # Or just use the last timestamp. 
-             start_time = self._last_log_timestamp
-
         payload = {
-            "codes": "lock_record", # Filter for lock records
+            "codes": "lock_record,unlock_key,manual_lock,unlock_ble,unlock_phone_remote", 
             "start_time": start_time,
             "end_time": current_time_ms,
-            "size": 1 
+            "size": 20 # Fetch more to ensure we find a valid event
         }
         
-        # Searching mainly for the last event to determine state
         response = self.openapi.get(f"/v1.0/devices/{self.device_id}/logs", payload)
         
         if response.get("success", False):
             result = response.get("result", {})
             logs = result.get("logs", [])
-            if logs:
-                last_log = logs[0]
-                self._last_log_timestamp = last_log.get("event_time", current_time_ms)
-                # Attempt to parse lock state from the value
-                # This depends heavily on what 'value' looks like in the log
-                # For now, we return the log item as a pseudo-status
-                # The entity will need to know how to handle this.
-                return {"_log_fallback": last_log}
+            _LOGGER.debug("Log response: %s", logs)
+            
+            for log in logs:
+                code = log.get("code")
+                # Logic provided by user
+                if code == 'lock_record':
+                    return {"is_locked": True}
+                elif code == 'unlock_key':
+                    return {"is_locked": False}
+                elif code == 'manual_lock':
+                    return {"is_locked": True}
+                elif code == 'unlock_ble':
+                    return {"is_locked": False}
+                elif code == 'unlock_phone_remote':
+                    return {"is_locked": False}
+        else:
+             _LOGGER.warning("Failed to fetch logs: %s", response)
 
-        raise UpdateFailed("Could not fetch status or logs from Tuya")
+        # Fallback to status if no logs or log fetch failed
+        _LOGGER.debug("No relevant logs found, trying direct status...")
+        response = self.openapi.get(f"/v1.0/devices/{self.device_id}/status")
+        
+        if response.get("success", False):
+            result = response.get("result", [])
+            status = {item["code"]: item["value"] for item in result}
+            # Try to determine state from status as a last resort
+            if "lock_motor_state" in status:
+                 return {"is_locked": bool(status["lock_motor_state"])}
+            return status
+
+        # If everything fails, return empty to indicate unknown or keep previous
+        _LOGGER.warning("Could not determine state from logs or status")
+        return {}
 
     async def async_unlock(self) -> None:
         """Unlock the door."""

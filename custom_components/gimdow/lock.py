@@ -45,37 +45,12 @@ class GimdowLock(CoordinatorEntity[GimdowCoordinator], LockEntity):
     @property
     def is_locked(self) -> bool | None:
         """Return true if lock is locked."""
-        # Data format is determined by coordinator.
-        # It can be a dict of status codes or a log entry.
-        
         data = self.coordinator.data
         if not data:
             return None
-            
-        # Check for log fallback
-        if "_log_fallback" in data:
-            log_item = data["_log_fallback"]
-            code = log_item.get("code", "")
-            
-            if code in ["lock_record", "manual_lock"]:
-                return True
-            if code in ["unlock_key", "unlock_ble", "unlock_phone_remote"]:
-                return False
-            
-            val = str(log_item.get("value", "")).lower()
-            if "unlock" in val or "open" in val:
-                 return False
-            if "lock" in val or "close" in val:
-                 return True
-            return None
-            
-        # Standard status check
-        for key, value in data.items():
-            if key in ["lock_motor_state", "lock_state", "door_state"]:
-                if isinstance(value, bool):
-                     return value
         
-        return None
+        # State determined by coordinator from logs/status
+        return data.get("is_locked")
 
     async def async_lock(self, **kwargs: Any) -> None:
         """Lock the lock."""
