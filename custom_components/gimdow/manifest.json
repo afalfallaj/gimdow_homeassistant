@@ -1,10 +1,10 @@
 {
 "domain": "gimdow",
 "name": "Gimdow Smart Lock",
-"version": "1.0.0",
+"version": "1.0.1",
 "documentation": "https://github.com/afalfallaj/gimdow_homeassistant",
 "requirements": [
-    "tuya-iot-py-sdk==0.6.6"
+    "tuya-connector-python==0.1.2"
 ],
 "dependencies": [],
 "codeowners": [

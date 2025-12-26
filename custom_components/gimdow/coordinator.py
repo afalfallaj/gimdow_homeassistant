@@ -12,7 +12,7 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 from homeassistant.exceptions import ConfigEntryAuthFailed
-from tuya_iot import TuyaOpenAPI
+from tuya_connector import TuyaOpenAPI
 
 from .const import DOMAIN
 
@@ -45,6 +45,7 @@ class GimdowCoordinator(DataUpdateCoordinator):
         try:
             return await self.hass.async_add_executor_job(self._update_data)
         except Exception as err:
+            _LOGGER.exception("Error updating data from Tuya")
             raise UpdateFailed(f"Error communicating with API: {err}") from err
 
     def _update_data(self) -> dict[str, Any]:

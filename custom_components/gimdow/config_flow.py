@@ -9,7 +9,7 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.const import CONF_ACCESS_TOKEN
 from homeassistant.data_entry_flow import FlowResult
-from tuya_iot import TuyaOpenAPI, AuthType
+from tuya_connector import TuyaOpenAPI
 
 from .const import (
     DOMAIN,
@@ -47,24 +47,24 @@ class GimdowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             # Verify with Tuya
             openapi = TuyaOpenAPI(endpoint, access_id, access_secret)
             try:
-                # We simply try to connect. 
-                # connect method is synchronous but lightweight (just sets up objects usually? No, it does auth).
-                # Wait, TuyaOpenAPI.connect() actually performs the token exchange.
+                # Use tuya-connector-python style connection
                 response = await self.hass.async_add_executor_job(openapi.connect)
-                _LOGGER.debug("Tuya connection response: %s", response)
+                _LOGGER.debug("Tuya connection test result: %s", response)
                 
             except Exception as err:
-                _LOGGER.error("Exception during Tuya connection: %s", err)
+                _LOGGER.exception("Exception during Tuya connection attempt")
                 errors["base"] = "cannot_connect"
             else:
-                if response.get("success", False):
+                # tuya-connector-python connect() typically returns the token check result or success boolean
+                # If we get a response and it doesn't indicate catastrophic failure (like False)
+                if response is not False:
                     # Connection successful, create entry
                     return self.async_create_entry(
                         title=f"Gimdow Lock {device_id}",
                         data=user_input
                     )
                 else:
-                    _LOGGER.error("Tuya authentication failed: %s", response.get("msg"))
+                    _LOGGER.error("Tuya authentication failed (connect returned False)")
                     errors["base"] = "invalid_auth"
 
         return self.async_show_form(

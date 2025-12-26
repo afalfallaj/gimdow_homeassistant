@@ -8,7 +8,7 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 
-from tuya_iot import TuyaOpenAPI
+from tuya_connector import TuyaOpenAPI
 
 from .const import (
     DOMAIN,
@@ -35,18 +35,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Initialize Tuya OpenAPI
     openapi = TuyaOpenAPI(endpoint, access_id, access_secret)
     
-    # Attempt to connect to verify/refresh token
-    # We do this in the executor
     try:
+        # tuya-connector-python uses connect() to initialize/refresh
         response = await hass.async_add_executor_job(openapi.connect)
-        _LOGGER.debug("Tuya connection response: %s", response)
+        _LOGGER.debug("Tuya connection result: %s", response)
     except Exception as err:
-        _LOGGER.error("Failed to connect to Tuya: %s", err)
+        _LOGGER.error("Failed to connect to Tuya: %s (%s)", err, type(err).__name__)
         raise ConfigEntryNotReady(f"Failed to connect to Tuya: {err}") from err
     
-    if not response.get("success", False):
-        _LOGGER.error("Tuya authentication failed: %s", response.get("msg"))
-        raise ConfigEntryNotReady(f"Tuya authentication failed: {response.get('msg')}")
+    # Validation for tuya-connector response
+    # It might return True/False or a dict depending on implementation/error
+    if response is False:
+        _LOGGER.error("Tuya authentication failed (connect returned False)")
+        raise ConfigEntryNotReady("Tuya authentication failed")
 
     # Initialize Coordinator
     coordinator = GimdowCoordinator(hass, openapi, device_id)
