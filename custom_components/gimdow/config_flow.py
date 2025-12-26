@@ -51,8 +51,10 @@ class GimdowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 # connect method is synchronous but lightweight (just sets up objects usually? No, it does auth).
                 # Wait, TuyaOpenAPI.connect() actually performs the token exchange.
                 response = await self.hass.async_add_executor_job(openapi.connect)
+                _LOGGER.debug("Tuya connection response: %s", response)
                 
-            except Exception:
+            except Exception as err:
+                _LOGGER.error("Exception during Tuya connection: %s", err)
                 errors["base"] = "cannot_connect"
             else:
                 if response.get("success", False):
@@ -62,6 +64,7 @@ class GimdowConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         data=user_input
                     )
                 else:
+                    _LOGGER.error("Tuya authentication failed: %s", response.get("msg"))
                     errors["base"] = "invalid_auth"
 
         return self.async_show_form(

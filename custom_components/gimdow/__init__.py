@@ -39,10 +39,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # We do this in the executor
     try:
         response = await hass.async_add_executor_job(openapi.connect)
+        _LOGGER.debug("Tuya connection response: %s", response)
     except Exception as err:
+        _LOGGER.error("Failed to connect to Tuya: %s", err)
         raise ConfigEntryNotReady(f"Failed to connect to Tuya: {err}") from err
     
     if not response.get("success", False):
+        _LOGGER.error("Tuya authentication failed: %s", response.get("msg"))
         raise ConfigEntryNotReady(f"Tuya authentication failed: {response.get('msg')}")
 
     # Initialize Coordinator
